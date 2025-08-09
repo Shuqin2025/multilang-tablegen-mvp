@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: tablegen-backend
+    env: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: BASE_URL
+        # Render fills this with the external URL after first deploy; you can update it in the dashboard
+        value: https://your-backend.onrender.com
+
+  - type: static
+    name: tablegen-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE
+        # After the first backend deploy, set this to the backend URL (e.g., https://your-backend.onrender.com)
+        value: https://your-backend.onrender.com
