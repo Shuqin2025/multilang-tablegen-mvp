@@ -1,23 +1,24 @@
 services:
+  # 后端：Node Web Service（从根目录启动 server.js）
   - type: web
     name: tablegen-backend
     env: node
-    plan: professional   # 你是付费计划，这里可以保持 professional
-    rootDir: backend
+    rootDir: .
+    plan: professional   # 你有付费的话可以保留；不写也行
     buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION
-        value: "18"
+        value: 18         # 或者 20，也可以放到 package.json 的 "engines" 里
 
-
-  # 前端：静态站点（Vite 构建）
+  # 前端：静态站点（Vite 构建 dist，再发布 dist）
   - type: static
     name: tablegen-frontend
     rootDir: .
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
+      # 让前端在构建时自动拿到后端的 Host，注入到 Vite 的环境变量里
       - key: VITE_API_BASE
         fromService:
           type: web
