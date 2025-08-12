@@ -1,18 +1,16 @@
 services:
-  # 后端：Node Web Service
+  # 后端: Node Web Service
   - type: web
     name: tablegen-backend
     env: node
-    plan: free
     rootDir: backend
     buildCommand: npm install
     startCommand: node server.js
 
-  # 前端：静态站点（Vite 构建）
+  # 前端: 静态站点 (Vite 构建)
   - type: web
     name: tablegen-frontend
     env: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -22,4 +20,3 @@ services:
           type: web
           name: tablegen-backend
           property: host
-
