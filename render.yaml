@@ -1,40 +1,10 @@
 services:
-  # 后端服务
   - type: web
     name: tablegen-backend
     env: node
-    plan: starter
-    branch: main
-    rootDir: ./
-    buildCommand: |
-      echo "Node: $(node -v)  npm: $(npm -v)"
-      npm ci --omit=dev --no-audit --no-fund --legacy-peer-deps
-    startCommand: node server.js
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
     envVars:
-      - key: NPM_CONFIG_LEGACY_PEER_DEPS
-        value: "true"
-      - key: NPM_CONFIG_AUDIT
-        value: "false"
-      - key: NPM_CONFIG_FUND
-        value: "false"
-    buildFilter:
-      paths:
-        - server.js
-        - package.json
-        - package-lock.json
-        - .npmrc
-
-  # 前端静态站（如果你要在 Render 部署前端）
-  - type: static
-    name: tablegen-frontend
-    plan: starter
-    branch: main
-    rootDir: ./
-    buildCommand: npm install --legacy-peer-deps && npm run build
-    staticPublishPath: dist
-    buildFilter:
-      paths:
-        - src/**
-        - index.html
-        - vite.config.*
-
+      - key: NODE_VERSION
+        value: 18
