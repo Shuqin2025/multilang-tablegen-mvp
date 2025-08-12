@@ -5,23 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
     "preview": "vite preview",
+    "build": "vite build",
     "start": "node server.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "cors": "^2.8.5",
+    "react": "18.x",
+    "react-dom": "18.x"
   },
   "devDependencies": {
     "vite": "^5.4.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.x"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=18 <22"
   }
 }
 
