@@ -1,24 +1,27 @@
 services:
+  # 后端：Node Web Service
   - type: web
     name: tablegen-backend
     env: node
-    rootDir: backend
     plan: free
-    buildCommand: npm install
+    rootDir: backend
+    buildCommand: npm ci
     startCommand: node server.js
     envVars:
       - key: PORT
         value: 10000
-      - key: BASE_URL
-        # Render fills this with the external URL after first deploy; you can update it in the dashboard
-        value: https://your-backend.onrender.com
 
-  - type: static
+  # 前端：静态站点
+  - type: static_site
     name: tablegen-frontend
+    plan: free
     rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    buildCommand: npm ci && npm run build
+    publishPath: dist
     envVars:
+      # 让前端在构建时自动拿到后端 URL
       - key: VITE_API_BASE
-        # After the first backend deploy, set this to the backend URL (e.g., https://your-backend.onrender.com)
-        value: https://your-backend.onrender.com
+        fromService:
+          type: web
+          name: tablegen-backend
+          property: url
