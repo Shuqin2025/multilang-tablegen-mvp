@@ -4,16 +4,17 @@ services:
     name: tablegen-backend
     env: node
     rootDir: .
-    plan: professional          # 你是付费用户；若不写也行，默认会按你的账单计划
+    plan: starter          # 若提示不支持 starter，就改成 professional
     buildCommand: npm ci
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION
-        value: 18               # 或 20，与你本地一致即可。没有特别要求就用 18
+        value: 18          # 也可以用 20，与你本地一致即可
 
   # 前端：静态站点（Vite 构建产物）
-  - type: static
+  - type: web
     name: tablegen-frontend
+    env: static
     rootDir: .
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
@@ -22,5 +23,4 @@ services:
         fromService:
           type: web
           name: tablegen-backend
-          property: host
-
+          property: host   # 用后端的 host 作为前端环境变量
