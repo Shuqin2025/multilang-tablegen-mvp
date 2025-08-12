@@ -1,27 +1,17 @@
 {
-  "name": "multilang-tablegen-mvp",
+  "name": "tablegen-backend",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "description": "Minimal Express backend for Render",
+  "main": "server.js",
   "scripts": {
-    "dev": "vite",
-    "preview": "vite preview",
-    "build": "vite build",
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
-    "react": "18.x",
-    "react-dom": "18.x"
-  },
-  "devDependencies": {
-    "vite": "^5.4.0",
-    "@vitejs/plugin-react": "^4.3.0",
-    "typescript": "^5.x"
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
   },
   "engines": {
-    "node": ">=18 <22"
+    "node": "18.x"
   }
 }
 
