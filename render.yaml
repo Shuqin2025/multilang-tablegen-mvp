@@ -4,17 +4,16 @@ services:
     name: tablegen-backend
     env: node
     rootDir: .
-    plan: professional         # 你有会员就用 professional；如果不想写，也可以删掉这行
-    buildCommand: npm install  # 用 npm install，避免 npm ci 因为没有 lock 失败
+    plan: professional         # 你是付费用户，也可以写 free；但保持和你的套餐一致
+    buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION
-        value: 18              # 或 20，与你本地一致即可
+        value: 18              # 或 20；与你 package.json 的 engines 区间一致即可
 
-  # 前端：静态站点（Vite 构建产物）
-  - type: web
+  # 前端：静态站点（Vite 构建）
+  - type: static
     name: tablegen-frontend
-    env: static
     rootDir: .
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -23,4 +22,4 @@ services:
         fromService:
           type: web
           name: tablegen-backend
-          property: host       # 用后端的 host 注入到前端
+          property: host
