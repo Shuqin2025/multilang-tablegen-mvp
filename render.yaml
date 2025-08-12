@@ -1,5 +1,5 @@
 services:
-  # 后端: Node Web Service
+  # 后端：Node Web Service
   - type: web
     name: tablegen-backend
     env: node
@@ -7,10 +7,8 @@ services:
     rootDir: backend
     buildCommand: npm install
     startCommand: node server.js
-    # 建议：不要手动设置 PORT，Render 会自动注入 PORT 环境变量
-    # 你的 server.js 里应使用 process.env.PORT（或默认 10000）
 
-  # 前端: 静态站点
+  # 前端：静态站点（Vite 构建）
   - type: web
     name: tablegen-frontend
     env: static
@@ -18,10 +16,10 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
-   envVars:
-  - key: VITE_API_BASE
-    fromService:
-      type: web
-      name: tablegen-backend
-      property: host
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: tablegen-backend
+          property: host
 
