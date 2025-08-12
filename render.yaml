@@ -3,13 +3,14 @@ services:
   - type: web
     name: tablegen-backend
     env: node
+    plan: professional
     rootDir: .
-    plan: professional         # 你是付费用户，也可以写 free；但保持和你的套餐一致
-    buildCommand: npm install
+    buildCommand: npm install        # ← 这里改成 npm install
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION
-        value: 18              # 或 20；与你 package.json 的 engines 区间一致即可
+        value: 18                    # 建议固定成 18（和前端要求一致）
+
 
   # 前端：静态站点（Vite 构建）
   - type: static
