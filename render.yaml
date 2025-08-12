@@ -4,21 +4,27 @@ services:
     name: tablegen-backend
     env: node
     rootDir: .
-    plan: professional            # 你是专业版就保留；免费版填 free 也可以
-    buildCommand: npm install     # 这里原来是 npm ci，改成 npm install
+    plan: professional
+    buildCommand: npm install --no-audit --no-fund --legacy-peer-deps
     startCommand: node server.js
-    envVars: []
-
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+      # 如果你有 .env，也可以加： 
+      # - key: NODE_ENV
+      #   value: production
+      
   # 前端：静态站点（Vite 构建产物）
   - type: static
     name: tablegen-frontend
     rootDir: .
-    buildCommand: npm install && npm run build   # 也改成 npm install
+    buildCommand: npm install --no-audit --no-fund --legacy-peer-deps && npm run build
     staticPublishPath: dist
     envVars:
+      # 让你在 vite 里用 import.meta.env.VITE_API_BASE 读到后端 URL
       - key: VITE_API_BASE
         fromService:
           type: web
           name: tablegen-backend
-          property: host         # 你之前用过 host；如果想拿完整 URL 用 url
+          property: host
 
