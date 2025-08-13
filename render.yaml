@@ -3,8 +3,11 @@ services:
     name: tablegen-backend
     env: node
     plan: free
-    buildCommand: "npm install"
-    startCommand: "npm start"
+    rootDir: backend              # 👈 一定要加：锁定为 backend 子目录
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health  # 你后端有这个路由，更稳定；也可以用 "/"
     envVars:
       - key: NODE_VERSION
         value: 18
+
