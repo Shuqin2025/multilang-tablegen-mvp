@@ -1,21 +1,24 @@
 {
-  "name": "multilang-tablegen-frontend",
+  "name": "multilang-tablegen-mvp",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.js"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "18.x",
+    "react-dom": "18.x",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "vite": "^5.4.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.x"
   },
   "engines": {
     "node": ">=18 <22"
