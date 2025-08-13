@@ -1,0 +1,11 @@
+services:
+  - type: static
+    name: tablegen-frontend-2
+    env: static
+    plan: free
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://tablegen-backend.onrender.com
