@@ -1,13 +1,14 @@
-// Mock crawler: replace with real extraction when ready.
-export async function crawlProducts(url) {
-  // For MVP demo we return a single mocked product per URL.
-  return [{
-    name: `Product from ${url}`,
-    imageUrl: 'https://via.placeholder.com/300.png?text=Image',
-    price: (Math.random()*50+5).toFixed(2),
-    moq_value: Math.floor(Math.random()*100)+10,
-    description: 'This is a mocked description for demonstration.',
-    params: { color: 'Black', material: 'ABS', size: '10x10x5cm' },
-    productUrl: url
-  }]
+// backend/services/crawler.js
+
+// 模拟抓取数据的函数
+async function fetchData(url) {
+  console.log(`模拟抓取：${url}`);
+  // 这里暂时返回 mock 数据
+  return [
+    { name: 'Product A', value: 100 },
+    { name: 'Product B', value: 200 },
+    { name: 'Product C', value: 300 }
+  ];
 }
+
+export default { fetchData };
