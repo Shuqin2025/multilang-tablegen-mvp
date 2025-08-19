@@ -1,28 +1,22 @@
-const express = require('express');
+import express from 'express';
+import excelService from '../services/excel.js';
+import crawlerService from '../services/crawler.js';
+
 const router = express.Router();
 
-// POST /api/tablegen
-router.post('/', async (req, res) => {
+// 示例接口
+router.post('/generate', async (req, res) => {
   try {
     const { url } = req.body;
-    if (!url) {
-      return res.status(400).json({ error: 'Missing url' });
-    }
-
-    // 模拟生成表格数据（后续可以改为真实抓取逻辑）
-    const tableData = {
-      headers: ['Column 1', 'Column 2'],
-      rows: [
-        ['Value 1', 'Value 2'],
-        ['Value 3', 'Value 4'],
-      ]
-    };
-
-    res.json({ success: true, data: tableData });
+    const data = await crawlerService.fetchData(url);
+    const buffer = await excelService.generateExcel(data);
+    res.setHeader('Content-Disposition', 'attachment; filename=result.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
   } catch (err) {
-    console.error('Error generating table:', err);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    console.error(err);
+    res.status(500).json({ error: '生成失败' });
   }
 });
 
-module.exports = router;
+export default router;
