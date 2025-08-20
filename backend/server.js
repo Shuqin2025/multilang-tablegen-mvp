@@ -1,22 +1,35 @@
 // backend/server.js
 import express from 'express';
 import cors from 'cors';
-import tablegenRoutes from './routes/tablegen.js';
+import tablegenRoutes from './routes/tablegen.js';  // 确认路径无误
 
 const app = express();
 
-// 中间件
+// 允许跨域访问
 app.use(cors());
-app.use(express.json({ limit: '2mb' })); // 取代 body-parser
 
-// 健康检查（Render 会用得到）
-app.get('/api/health', (req, res) => res.send('ok'));
+// 解析 JSON 请求体
+app.use(express.json());
 
-// 业务路由
+// 根路径：方便浏览器直接访问时看到提示
+app.get('/', (req, res) => {
+  res.send('✅ Backend is running on Render');
+});
+
+// 健康检查接口
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 业务接口路由
 app.use('/api/tablegen', tablegenRoutes);
 
-// 启动
+// 监听端口
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`[tablegen-backend] listening on :${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
