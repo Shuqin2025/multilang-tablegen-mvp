@@ -1,16 +1,5 @@
 services:
   - type: web
-    name: multilang-backend
-    env: node
-    plan: free
-    rootDir: backend
-    buildCommand: "npm install"
-    startCommand: "npm start"
-    envVars:
-      - key: NODE_VERSION
-        value: 18
-
-  - type: web
     name: multilang-frontend
     env: node
     plan: free
