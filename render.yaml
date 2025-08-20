@@ -1,15 +1,22 @@
 services:
   - type: web
-    name: tablegen-backend
+    name: multilang-backend
     env: node
     plan: free
-    branch: main
     rootDir: backend
-    buildCommand: npm ci
-    startCommand: npm start
-    healthCheckPath: /api/health
-    autoDeploy: true
+    buildCommand: "npm install"
+    startCommand: "npm start"
     envVars:
       - key: NODE_VERSION
         value: 18
 
+  - type: web
+    name: multilang-frontend
+    env: node
+    plan: free
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm run start"
+    envVars:
+      - key: NODE_VERSION
+        value: 18
