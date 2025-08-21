@@ -1,134 +1,55 @@
-// frontend/src/components/TablegenPage.jsx
-import React, { useState } from "react";
+// backend/routes/tablegen.js
+import { Router } from 'express';
 
-export default function TablegenPage() {
-  const [input, setInput] = useState("");
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+// 如需调用你的服务层，请按需解开并使用：
+// import excelService from '../services/excel.js';
+// import pdfService from '../services/pdf.js';
+// import crawlerService from '../services/crawler.js';
+// import translateService from '../services/translate.js';
 
-  // 后端基地址：优先取环境变量，未配置则用当前 Render 后端示例
-  const API_BASE =
-    import.meta.env?.VITE_API_BASE || "https://multilang-backend-bl2m.onrender.com";
+const router = Router();
 
-  const handleSubmit = async () => {
-    if (!input.trim()) {
-      alert("请输入测试内容再提交哦～");
-      return;
+/**
+ * 健康检查/快速自测：
+ * GET /api/tablegen
+ */
+router.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'tablegen', timestamp: Date.now() });
+});
+
+/**
+ * 生成接口：
+ * POST /api/tablegen
+ * body: { urls: string[], locale?: string, format?: 'excel' | 'pdf' }
+ */
+router.post('/', async (req, res) => {
+  try {
+    const { urls = [], locale = 'zh', format = 'excel' } = req.body || {};
+
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ ok: false, error: 'urls 不能为空' });
     }
-    setLoading(true);
-    setResult(null); // 提交时清空上一条结果
-    try {
-      const res = await fetch(`${API_BASE}/api/tablegen/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      console.error(err);
-      setResult({ error: err.message || "请求失败" });
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleCopy = () => {
-    if (!result) return;
-    const text = JSON.stringify(result, null, 2);
-    navigator.clipboard.writeText(text).then(() => {
-      alert("✅ 已复制到剪贴板！");
+    // 这里按需调用你的服务层（示例）：
+    // let fileBuffer;
+    // if (format === 'excel') {
+    //   fileBuffer = await excelService(urls, { locale });
+    // } else if (format === 'pdf') {
+    //   fileBuffer = await pdfService(urls, { locale });
+    // } else {
+    //   return res.status(400).json({ ok: false, error: '不支持的 format' });
+    // }
+
+    // 暂时返回一个成功的占位响应，确认后端跑通：
+    return res.json({
+      ok: true,
+      received: { urls, locale, format },
+      note: '路由已运行（这里按需接入 excel/pdf 具体生成逻辑）',
     });
-  };
+  } catch (err) {
+    console.error('POST /api/tablegen error:', err);
+    res.status(500).json({ ok: false, error: '服务器错误', detail: String(err?.message || err) });
+  }
+});
 
-  const handleDownload = () => {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "tablegen-result.json";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleClear = () => {
-    if (loading) return; // loading 中避免误清空
-    setInput("");
-    setResult(null);
-  };
-
-  return (
-    <div className="p-6">
-      <h1 className="text-xl font-bold mb-4">测试 Tablegen 接口</h1>
-
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="输入测试内容"
-        className="border p-2 w-full mb-3"
-        disabled={loading}
-      />
-
-      <div className="flex gap-2 mb-2">
-        <button
-          onClick={handleSubmit}
-          className={`text-white px-4 py-2 rounded ${
-            loading ? "bg-blue-300" : "bg-blue-500 hover:bg-blue-600"
-          }`}
-          disabled={loading}
-        >
-          {loading ? "提交中，请稍候…" : "提交"}
-        </button>
-
-        <button
-          onClick={handleClear}
-          className={`text-white px-4 py-2 rounded ${
-            loading ? "bg-gray-300" : "bg-gray-500 hover:bg-gray-600"
-          }`}
-          disabled={loading}
-        >
-          清空
-        </button>
-
-        <button
-          onClick={handleCopy}
-          className={`text-white px-4 py-2 rounded ${
-            !result || loading ? "bg-green-300" : "bg-green-500 hover:bg-green-600"
-          }`}
-          disabled={!result || loading}
-        >
-          📋 复制结果
-        </button>
-
-        <button
-          onClick={handleDownload}
-          className={`text-white px-4 py-2 rounded ${
-            !result || loading ? "bg-purple-300" : "bg-purple-500 hover:bg-purple-600"
-          }`}
-          disabled={!result || loading}
-        >
-          💾 下载 JSON
-        </button>
-      </div>
-
-      {loading && (
-        <div className="text-sm text-gray-600 mb-2">⏳ 提交中，请稍候…</div>
-      )}
-
-      {result && (
-        <div className="mt-3">
-          <h2 className="text-lg font-semibold mb-2">结果：</h2>
-          <pre className="bg-gray-100 p-4 rounded overflow-x-auto whitespace-pre-wrap break-words">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
+export default router;
