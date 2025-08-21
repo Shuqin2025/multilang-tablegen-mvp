@@ -1,11 +1,11 @@
 services:
   - type: web
-    name: multilang-frontend
+    name: multilang-backend
     env: node
     plan: free
-    rootDir: frontend
-    buildCommand: "npm install && npm run build"
-    startCommand: "npm run start"
+    rootDir: backend
+    buildCommand: "npm install"
+    startCommand: "npm start"
     envVars:
       - key: NODE_VERSION
-        value: 18
+        value: 20   # ← 改成 20（或者把这一段 envVars 删掉）
