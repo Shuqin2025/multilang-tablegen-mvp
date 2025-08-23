@@ -5,18 +5,16 @@ import * as XLSX from 'xlsx';
 const router = express.Router();
 
 /**
- * 接口：POST /api/tablegen
- * 请求体示例：
- * {
- *   "urls": ["https://example.com/product/123"],
- *   "fields": ["name", "price", "imageUrl", "moq_value"],
- *   "languages": ["zh"],
- *   "format": "excel"                 // "excel" 或 "pdf"（PDF可后续接入）
+ * POST /api/tablegen
+ * body: {
+ *   urls: string[],
+ *   fields: string[],           // e.g. ["name","price","imageUrl","moq_value","description"]
+ *   languages: string[],        // e.g. ["zh"]
+ *   format: "excel" | "pdf"     // 现阶段支持 excel；pdf 以后接
  * }
  *
- * 返回：
- * - 当 format === 'excel' 时：以附件形式（Content-Disposition: attachment）直接返回 .xlsx
- * - 其他情况：返回 JSON（ok: true...）
+ * 当 format === "excel"：直接返回 .xlsx 二进制（Content-Disposition 附件下载）
+ * 其它格式：返回 JSON 占位
  */
 router.post('/', async (req, res) => {
   try {
@@ -27,8 +25,7 @@ router.post('/', async (req, res) => {
       format = 'excel',
     } = req.body || {};
 
-    // 1) 这里替换为你真正的抓取/组装逻辑：
-    //    目前先用 urls 构造几行“示例数据”，确保链路跑通。
+    // 1) 这里放真实抓取逻辑；演示用 mock 数据保证链路通
     const rows = urls.map((u, idx) => {
       const base = {
         url: u,
@@ -38,22 +35,16 @@ router.post('/', async (req, res) => {
         moq_value: idx + 1,
         description: `示例描述 ${idx + 1}`,
       };
-      // 仅保留请求的 fields 字段
       const filtered = { url: base.url };
       for (const f of fields) filtered[f] = base[f] ?? '';
       return filtered;
     });
 
-    // 2) Excel 导出：内存中生成并“现写现发”，不落盘（适配 Render 的无持久化文件系统）。
     if (format === 'excel') {
-      // 生成 AOA（二维数组）：第一行表头
+      // 2) 生成工作簿（内存中，不落盘，适配 Render）
       const header = ['url', ...fields];
       const aoa = [header];
-      rows.forEach((row) => {
-        const r = [row.url];
-        fields.forEach((f) => r.push(row[f] ?? ''));
-        aoa.push(r);
-      });
+      rows.forEach(r => aoa.push([r.url, ...fields.map(f => r[f] ?? '')]));
 
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -69,11 +60,10 @@ router.post('/', async (req, res) => {
         'Content-Disposition',
         `attachment; filename="tablegen_${Date.now()}.xlsx"`
       );
-
       return res.send(buf);
     }
 
-    // 3) 非 excel（比如后续接 PDF），先返回 JSON 占位
+    // 3) 其它格式先返回占位 JSON
     return res.json({
       ok: true,
       received: { urls, fields, languages, format },
@@ -86,3 +76,4 @@ router.post('/', async (req, res) => {
 });
 
 export default router;
+
