@@ -1,22 +1,31 @@
 // frontend/apiBase.js
-// 最简单&稳妥：直连线上后端
-export const API_BASE = "https://multilang-backend-bl2m.onrender.com";
 
-// 统一的 POST JSON 封装
-export async function postJSON(path, body, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    // 一定不要加 mode:"no-cors"，否则会导致“Failed to fetch”
-    ...opts,
-  });
-  return res;
-}
+// ✅ 你后端在 Render 的基础 URL（备选，用作兜底）
+const FALLBACK_RENDER_URL = 'https://multilang-backend-bl2m.onrender.com';
 
-// 健康检查（可选）
-export function health() {
-  return fetch(`${API_BASE}/health`);
-}
+// 1) 是否本地开发：Vite 的 DEV 标记，或主机名是 localhost/127.0.0.1
+const isLocalHost = (() => {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1';
+})();
 
-export default API_BASE;
+const isDev = Boolean(import.meta?.env?.DEV);
+
+// 2) 允许通过环境变量显式指定 API 基址（可选）
+// 在前端 .env 或 Render 的环境变量里设置：VITE_API_BASE=https://your-backend/xxx
+const envBase = (import.meta?.env?.VITE_API_BASE || '').trim();
+
+// 3) 计算最终的 BASE：
+// - 本地开发 → http://localhost:5000 （若你本地后端端口不同，就改这里）
+// - 否则若设置了 VITE_API_BASE → 用它
+// - 否则 → 用 Render 的兜底地址
+export const BASE = isLocalHost || isDev
+  ? 'http://localhost:5000'
+  : (envBase || FALLBACK_RENDER_URL);
+
+// 统一导出 API 路径
+export const API = {
+  health: `${BASE}/health`,
+  tablegen: `${BASE}/api/tablegen`,
+};
