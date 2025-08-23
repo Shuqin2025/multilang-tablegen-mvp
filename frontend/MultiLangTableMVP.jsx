@@ -1,404 +1,341 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from 'react';
 
-/**
- * 后端地址优先级：
- * 1) window.__env.API_BASE  (可在 index.html 里注入)
- * 2) import.meta.env.VITE_API_BASE (Vite 环境变量)
- * 3) 兜底 Render 后端地址（请按需替换为你的）
- */
-const BACKEND_BASE =
-  (typeof window !== "undefined" && window.__env && window.__env.API_BASE) ||
-  import.meta.env?.VITE_API_BASE ||
-  "https://multilang-backend-bl2m.onrender.com";
+// ---- 配置：后端基地址（优先用环境变量） ----
+const API_BASE =
+  (typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE) ||
+  'https://multilang-backend-bl2m.onrender.com';
 
-/** 小工具：把 textarea 文本拆成 URL 列表 */
-function parseUrls(text) {
-  return (text || "")
-    .split(/\r?\n|,|\s+/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+// 后端具体接口路径
+const ENDPOINTS = {
+  health: `${API_BASE}/health`,
+  excel: `${API_BASE}/api/tablegen`, // 生成 Excel
+  pdf: `${API_BASE}/api/pdf`,        // 生成 PDF
+};
 
-/** 工具：下载 Blob 文件 */
+// 简单工具：下载 Blob
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.style.display = "none";
+  const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
-  document.body.removeChild(a);
 }
 
 export default function MultiLangTableMVP() {
-  // -- 健康检查
-  const [health, setHealth] = useState({ ok: false, text: "Checking..." });
-
-  // -- 表单与状态
-  const [urlText, setUrlText] = useState("https://example.com/product/123");
+  // 表单
+  const [urlsText, setUrlsText] = useState('https://example.com/product/123');
   const [fields, setFields] = useState({
     name: true,
-    imageUrl: false,
+    imageUrl: true,
     price: true,
     moq_value: false,
     description: false,
   });
-  const [lang, setLang] = useState("zh"); // zh | en | de
-  const [format, setFormat] = useState("excel"); // excel | pdf
+  const [lang, setLang] = useState('zh'); // zh / en / de
+  const [format, setFormat] = useState('excel'); // excel / pdf
 
+  // 结果与 UI 状态
+  const [result, setResult] = useState(null); // 抓取后的 JSON 结果
   const [loading, setLoading] = useState(false);
-  const [jsonData, setJsonData] = useState(null); // 预览 JSON（若后端支持）
-  const [message, setMessage] = useState("");
+  const [health, setHealth] = useState({ ok: false, msg: 'checking…' });
 
-  const urls = useMemo(() => parseUrls(urlText), [urlText]);
-  const selectedFields = useMemo(
-    () => Object.keys(fields).filter((k) => fields[k]),
-    [fields]
-  );
+  // 解析 URL 列表
+  const urlList = useMemo(() => {
+    return urlsText
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }, [urlsText]);
 
   // 健康检查
   useEffect(() => {
-    let stop = false;
+    let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`${BACKEND_BASE}/health`);
-        const data = await r.json().catch(() => ({}));
-        if (!stop) {
-          setHealth({
-            ok: Boolean(r.ok),
-            text: r.ok
-              ? `Backend OK（uptime: ${data.uptime ?? "-"}s）`
-              : "Backend unhealthy",
-          });
+        const res = await fetch(ENDPOINTS.health);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setHealth({ ok: res.ok, msg: res.ok ? 'running' : 'unhealthy' });
         }
-      } catch (e) {
-        if (!stop) setHealth({ ok: false, text: "Health check failed" });
+      } catch (err) {
+        if (!cancelled) setHealth({ ok: false, msg: 'offline' });
       }
     })();
     return () => {
-      stop = true;
+      cancelled = true;
     };
   }, []);
 
-  // 勾选切换
-  const toggleField = (key) =>
-    setFields((s) => ({
-      ...s,
-      [key]: !s[key],
-    }));
-
-  // 一键清空
-  const handleClear = () => {
-    setUrlText("");
-    setFields({
-      name: true,
-      imageUrl: false,
-      price: true,
-      moq_value: false,
-      description: false,
-    });
-    setLang("zh");
-    setFormat("excel");
-    setJsonData(null);
-    setMessage("");
+  // 校验
+  const validate = () => {
+    if (!urlList.length) return '请至少输入 1 个商品 URL';
+    const bad = urlList.find(u => !/^https?:\/\//i.test(u));
+    if (bad) return `URL 格式不正确：${bad}`;
+    const picked = Object.entries(fields)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (!picked.length) return '请至少选择 1 个字段';
+    if (!['zh', 'en', 'de'].includes(lang)) return '请选择语言';
+    if (!['excel', 'pdf'].includes(format)) return '请选择导出格式';
+    return null;
   };
 
-  // 主提交：下载 Excel / PDF，同时尝试请求 JSON 以供“复制/下载 JSON”
-  const handleSubmit = async () => {
-    if (!urls.length) {
-      setMessage("请先粘贴至少一个商品 URL");
+  // 生成
+  const handleGenerate = async () => {
+    const err = validate();
+    if (err) {
+      alert(err);
       return;
     }
-    if (!selectedFields.length) {
-      setMessage("请至少勾选一个字段");
-      return;
-    }
+
+    const payload = {
+      urls: urlList,
+      fields: Object.entries(fields)
+        .filter(([, v]) => v)
+        .map(([k]) => k),
+      languages: [lang],
+      export: format, // "excel" | "pdf"
+    };
 
     setLoading(true);
-    setMessage("");
-    setJsonData(null);
-
     try {
-      const payload = {
-        urls,
-        fields: selectedFields,
-        languages: [lang],
-        format, // excel | pdf
-      };
-
-      // 1) 先下载文件
-      const r = await fetch(`${BACKEND_BASE}/api/tablegen`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // 先让后端抓取并返回 JSON（也便于页面展示）
+      // 这里为了简化，直接根据导出格式选择对应接口一次性拿文件。
+      // 如果你希望先拿 JSON，再单独点击导出，也可以改成先 hit 一个 `/api/scrape`。
+      const endpoint = format === 'excel' ? ENDPOINTS.excel : ENDPOINTS.pdf;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error(`生成文件失败：${r.status} ${text}`);
-      }
+      // 文件流下载
+      if (res.ok && res.headers.get('content-type')?.includes('application/')) {
+        const blob = await res.blob();
+        const filename =
+          (format === 'excel'
+            ? `tablegen_${Date.now()}.xlsx`
+            : `tablegen_${Date.now()}.pdf`);
+        downloadBlob(blob, filename);
 
-      const blob = await r.blob();
-      downloadBlob(
-        blob,
-        `tablegen_${Date.now()}.${format === "pdf" ? "pdf" : "xlsx"}`
-      );
-
-      // 2) 再尝试拿一份 JSON 预览（方便“复制/下载 JSON”）
-      //    如果后端暂未实现 format: 'json'，这里会失败，但不影响文件下载
-      try {
-        const r2 = await fetch(`${BACKEND_BASE}/api/tablegen`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, format: "json" }),
-        });
-        if (r2.ok) {
-          const data = await r2.json();
-          // data 可能是 { ok:true, rows:[...] } 或直接数组，兼容两种
-          const rows = Array.isArray(data) ? data : data?.rows;
-          if (rows && Array.isArray(rows)) {
-            setJsonData(rows);
-            setMessage("文件已下载；JSON 预览已就绪。");
+        // 为了保持页面有“结果”，尝试同时拿一份 JSON（如果后端有返回）
+        try {
+          const clone = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, export: 'json' }),
+          });
+          if (clone.ok) {
+            const json = await clone.json();
+            setResult(json);
           } else {
-            setMessage("文件已下载；后端未提供 JSON 预览。");
+            setResult(null);
           }
-        } else {
-          setMessage("文件已下载；后端暂未提供 JSON 预览。");
+        } catch {
+          setResult(null);
         }
-      } catch {
-        setMessage("文件已下载；后端暂未提供 JSON 预览。");
+      } else {
+        // （兼容）有些实现会先返回 JSON，再让前端二次下载
+        // 这里尝试解析 JSON 方便排错
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          setResult(json);
+          alert(json?.message || '生成完成（返回了 JSON）。如果未下载，请检查后端导出实现。');
+        } catch {
+          // 可能是 HTML 错误页
+          alert(`生成表格失败：HTTP ${res.status}：${text.slice(0, 400)}`);
+        }
       }
-    } catch (err) {
-      console.error(err);
-      setMessage(String(err.message || err));
+    } catch (e) {
+      alert(`请求失败：${e?.message || e}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // 复制 JSON（若已拿到）
-  const handleCopyJson = async () => {
-    if (!jsonData) return;
+  // 复制 JSON
+  const handleCopyJSON = async () => {
+    if (!result) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2));
-      setMessage("JSON 已复制到剪贴板 ✅");
-    } catch (e) {
-      setMessage("复制失败，请手动选择文本复制");
+      await navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+      alert('已复制到剪贴板');
+    } catch {
+      alert('复制失败，请手动复制');
     }
   };
 
-  // 下载 JSON（若已拿到）
-  const handleDownloadJson = () => {
-    if (!jsonData) return;
-    const blob = new Blob([JSON.stringify(jsonData, null, 2)], {
-      type: "application/json;charset=utf-8",
+  // 下载 JSON
+  const handleDownloadJSON = () => {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], {
+      type: 'application/json;charset=utf-8',
     });
-    downloadBlob(blob, `tablegen_${Date.now()}.json`);
+    downloadBlob(blob, `tablegen_result_${Date.now()}.json`);
+  };
+
+  // 清空
+  const handleClear = () => {
+    setUrlsText('');
+    setFields({
+      name: true,
+      imageUrl: true,
+      price: true,
+      moq_value: false,
+      description: false,
+    });
+    setLang('zh');
+    setFormat('excel');
+    setResult(null);
   };
 
   return (
-    <div style={styles.wrap}>
-      <h2 style={{ marginTop: 0 }}>多语言表格制作 MVP</h2>
+    <div style={{ padding: 16, maxWidth: 920, margin: '0 auto', lineHeight: 1.6 }}>
+      <h2>多语言表格制作 MVP</h2>
 
-      {/* 健康检查 */}
-      <div
-        style={{
-          marginBottom: 12,
-          color: health.ok ? "#16a34a" : "#e11d48",
-          fontSize: 13,
-        }}
-      >
-        <span style={{ marginRight: 6 }}>•</span>
-        {health.text}
-      </div>
-
-      {/* URL 列表 */}
-      <div style={styles.section}>
-        <div style={styles.label}>产品页面 URL 列表（每行一个）</div>
+      <div style={{ margin: '12px 0' }}>
+        <div style={{ marginBottom: 6 }}>产品页面 URL 列表（每行一个）</div>
         <textarea
-          value={urlText}
-          onChange={(e) => setUrlText(e.target.value)}
-          placeholder="https://example.com/product/123"
-          style={styles.textarea}
+          value={urlsText}
+          onChange={(e) => setUrlsText(e.target.value)}
           rows={6}
+          style={{ width: '100%', fontFamily: 'monospace' }}
+          placeholder="https://example.com/product/123"
         />
       </div>
 
-      {/* 字段选择 */}
-      <div style={styles.section}>
-        <div style={styles.label}>选择需抓取字段：</div>
-        {[
-          ["name", "name"],
-          ["imageUrl", "imageUrl"],
-          ["price", "price"],
-          ["moq_value", "moq_value"],
-          ["description", "description"],
-        ].map(([key, text]) => (
-          <label key={key} style={styles.checkItem}>
+      <div style={{ margin: '12px 0' }}>
+        <div style={{ marginBottom: 6 }}>选择需抓取字段：</div>
+        {Object.entries(fields).map(([k, v]) => (
+          <label key={k} style={{ marginRight: 16 }}>
             <input
               type="checkbox"
-              checked={fields[key]}
-              onChange={() => toggleField(key)}
-            />
-            <span style={{ marginLeft: 6 }}>{text}</span>
+              checked={v}
+              onChange={(e) => setFields((old) => ({ ...old, [k]: e.target.checked }))}
+            />{' '}
+            {k}
           </label>
         ))}
       </div>
 
-      {/* 语言 */}
-      <div style={styles.section}>
-        <div style={styles.label}>选择语言：</div>
-        {[
-          ["zh", "中文"],
-          ["en", "English"],
-          ["de", "Deutsch"],
-        ].map(([v, text]) => (
-          <label key={v} style={styles.checkItem}>
+      <div style={{ margin: '12px 0' }}>
+        <div style={{ marginBottom: 6 }}>选择语言：</div>
+        <label style={{ marginRight: 16 }}>
+          <input
+            type="radio"
+            value="zh"
+            checked={lang === 'zh'}
+            onChange={() => setLang('zh')}
+          />{' '}
+          中文
+        </label>
+        <label style={{ marginRight: 16 }}>
+          <input
+            type="radio"
+            value="en"
+            checked={lang === 'en'}
+            onChange={() => setLang('en')}
+          />{' '}
+          English
+        </label>
+        <label style={{ marginRight: 16 }}>
+          <input
+            type="radio"
+            value="de"
+            checked={lang === 'de'}
+            onChange={() => setLang('de')}
+          />{' '}
+          Deutsch
+        </label>
+      </div>
+
+      <div style={{ margin: '12px 0' }}>
+        <div style={{ marginBottom: 6 }}>导出格式：</div>
+        <label style={{ marginRight: 16 }}>
+          <input
+            type="radio"
+            value="excel"
+            checked={format === 'excel'}
+            onChange={() => setFormat('excel')}
+          />{' '}
+          EXCEL
+        </label>
+        <label style={{ marginRight: 16 }}>
             <input
               type="radio"
-              name="lang"
-              value={v}
-              checked={lang === v}
-              onChange={() => setLang(v)}
-            />
-            <span style={{ marginLeft: 6 }}>{text}</span>
-          </label>
-        ))}
+              value="pdf"
+              checked={format === 'pdf'}
+              onChange={() => setFormat('pdf')}
+            />{' '}
+            PDF
+        </label>
       </div>
 
-      {/* 导出格式 */}
-      <div style={styles.section}>
-        <div style={styles.label}>导出格式：</div>
-        {[
-          ["excel", "Excel"],
-          ["pdf", "PDF"],
-        ].map(([v, text]) => (
-          <label key={v} style={styles.checkItem}>
-            <input
-              type="radio"
-              name="format"
-              value={v}
-              checked={format === v}
-              onChange={() => setFormat(v)}
-            />
-            <span style={{ marginLeft: 6 }}>{text}</span>
-          </label>
-        ))}
-      </div>
-
-      {/* 操作按钮 */}
-      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <button
-          onClick={handleSubmit}
+          onClick={handleGenerate}
           disabled={loading}
           style={{
-            ...styles.btn,
-            background: loading ? "#a78bfa" : "#7c3aed",
-            cursor: loading ? "not-allowed" : "pointer",
+            padding: '8px 16px',
+            background: '#5b6cff',
+            color: '#fff',
+            border: 0,
+            borderRadius: 6,
+            cursor: loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading ? "提交中，请稍候…" : "生成表格"}
+          {loading ? '提交中，请稍候…' : '生成表格'}
         </button>
 
-        <button
-          onClick={handleCopyJson}
-          disabled={!jsonData || loading}
-          style={{
-            ...styles.btn,
-            background: !jsonData ? "#9ca3af" : "#2563eb",
-            cursor: !jsonData ? "not-allowed" : "pointer",
-          }}
-          title={!jsonData ? "需要后端支持 JSON 预览" : ""}
-        >
+        <button onClick={handleCopyJSON} disabled={!result}>
           复制 JSON
         </button>
-
-        <button
-          onClick={handleDownloadJson}
-          disabled={!jsonData || loading}
-          style={{
-            ...styles.btn,
-            background: !jsonData ? "#9ca3af" : "#10b981",
-            cursor: !jsonData ? "not-allowed" : "pointer",
-          }}
-          title={!jsonData ? "需要后端支持 JSON 预览" : ""}
-        >
+        <button onClick={handleDownloadJSON} disabled={!result}>
           下载 JSON
         </button>
+        <button onClick={handleClear}>清空</button>
 
-        <button
-          onClick={handleClear}
-          disabled={loading}
-          style={{
-            ...styles.btn,
-            background: "#f97316",
-          }}
-        >
-          一键清空
-        </button>
+        <span style={{ marginLeft: 'auto', opacity: 0.8, fontSize: 12 }}>
+          API：{API_BASE}{' '}
+          <span
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: health.ok ? '#22c55e' : '#ef4444',
+              verticalAlign: 'middle',
+              marginLeft: 6,
+            }}
+            title={`health: ${health.msg}`}
+          />
+        </span>
       </div>
 
-      {/* 提示 / JSON 预览 */}
-      {!!message && (
-        <div style={{ marginTop: 10, color: "#111827", fontSize: 13 }}>{message}</div>
-      )}
-
-      {jsonData && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ ...styles.label, marginBottom: 6 }}>JSON 预览（前 1-2 条）：</div>
-          <pre style={styles.preview}>
-            {JSON.stringify(jsonData.slice(0, 2), null, 2)}
+      {/* 结果预览 */}
+      {result && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>结果预览（JSON）</div>
+          <pre
+            style={{
+              background: '#f7f7fa',
+              border: '1px solid #eee',
+              padding: 12,
+              borderRadius: 6,
+              maxHeight: 360,
+              overflow: 'auto',
+            }}
+          >
+            {JSON.stringify(result, null, 2)}
           </pre>
         </div>
       )}
-
-      <div style={{ marginTop: 16, fontSize: 12, color: "#6b7280" }}>
-        后端：<code>{BACKEND_BASE}</code>
-      </div>
     </div>
   );
 }
-
-/* --- 简单内联样式 --- */
-const styles = {
-  wrap: {
-    maxWidth: 840,
-    margin: "24px auto",
-    padding: 16,
-    fontFamily:
-      '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif',
-    color: "#111827",
-    lineHeight: 1.5,
-  },
-  section: { marginTop: 14 },
-  label: { fontSize: 14, fontWeight: 600, marginBottom: 6 },
-  textarea: {
-    width: "100%",
-    border: "1px solid #d1d5db",
-    borderRadius: 8,
-    padding: 10,
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas",
-    fontSize: 13,
-    outline: "none",
-  },
-  checkItem: { marginRight: 16, fontSize: 14 },
-  btn: {
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 14,
-  },
-  preview: {
-    background: "#111827",
-    color: "#d1fae5",
-    padding: 12,
-    borderRadius: 8,
-    fontSize: 12,
-    maxHeight: 280,
-    overflow: "auto",
-  },
-};
 
