@@ -1,119 +1,147 @@
 // frontend/TablegenPage.jsx
-import React, { useState } from 'react';
-import { API_BASE } from './apiBase';
+import React, { useState } from "react";
+import { postJSON } from "./apiBase";
 
 export default function TablegenPage() {
-  const [urls, setUrls] = useState('');
-  const [fields, setFields] = useState(['name', 'price']);
-  const [language, setLanguage] = useState('zh');
-  const [format, setFormat] = useState('excel');
-  const [downloading, setDownloading] = useState(false);
+  const [urlsText, setUrlsText] = useState("https://example.com/product/123");
+  const [fields, setFields] = useState(["name", "price"]);
+  const [languages, setLanguages] = useState(["zh"]);
+  const [format, setFormat] = useState("excel");
+  const [loading, setLoading] = useState(false);
 
-  const toggleField = (field) => {
+  const allFields = ["name", "imageUrl", "price", "moq_value", "description"];
+  const allLangs = [
+    { code: "zh", label: "中文" },
+    { code: "en", label: "English" },
+    { code: "de", label: "Deutsch" },
+  ];
+
+  function toggleField(f) {
     setFields((prev) =>
-      prev.includes(field) ? prev.filter((f) => f !== field) : [...prev, field]
+      prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
     );
-  };
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setDownloading(true);
+  function toggleLang(code) {
+    setLanguages((prev) =>
+      prev.includes(code) ? prev.filter((x) => x !== code) : [...prev, code]
+    );
+  }
+
+  async function handleGenerate() {
+    setLoading(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/tablegen`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          urls: urls.split('\n').map((u) => u.trim()).filter(Boolean),
-          fields,
-          languages: [language],
-          format,
-        }),
+      const urls = urlsText
+        .split("\n")
+        .map((u) => u.trim())
+        .filter(Boolean);
+
+      const res = await postJSON("/api/tablegen", {
+        urls,
+        fields,
+        languages,
+        format,
       });
 
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `result.${format === 'excel' ? 'xlsx' : format}`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      if (!res.ok) {
+        const t = await res.text();
+        alert(`后端返回错误：${res.status} ${t}`);
+        return;
+      }
+
+      if (format === "excel") {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tablegen_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json();
+        alert("返回 JSON: " + JSON.stringify(data, null, 2));
+      }
     } catch (err) {
-      console.error('下载出错:', err);
-      alert('生成表格失败: ' + err.message);
+      console.error(err);
+      alert(`生成表格失败：${err?.message || err}`);
     } finally {
-      setDownloading(false);
+      setLoading(false);
     }
-  };
+  }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>多语言表格制作 MVP</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>产品页面 URL 列表（每行一个）</label>
-          <br />
-          <textarea
-            rows={6}
-            cols={60}
-            value={urls}
-            onChange={(e) => setUrls(e.target.value)}
-            placeholder="https://example.com/prod1"
+    <div style={{ padding: "20px" }}>
+      <h2>多语言表格制作 MVP</h2>
+
+      <div>
+        <label>产品页面 URL 列表（每行一个）</label>
+        <br />
+        <textarea
+          rows={5}
+          style={{ width: "500px" }}
+          value={urlsText}
+          onChange={(e) => setUrlsText(e.target.value)}
+        />
+      </div>
+
+      <div style={{ marginTop: "10px" }}>
+        <label>选择需抓取字段：</label>
+        <br />
+        {allFields.map((f) => (
+          <label key={f} style={{ marginRight: "10px" }}>
+            <input
+              type="checkbox"
+              checked={fields.includes(f)}
+              onChange={() => toggleField(f)}
+            />
+            {f}
+          </label>
+        ))}
+      </div>
+
+      <div style={{ marginTop: "10px" }}>
+        <label>选择语言：</label>
+        <br />
+        {allLangs.map((l) => (
+          <label key={l.code} style={{ marginRight: "10px" }}>
+            <input
+              type="radio"
+              checked={languages.includes(l.code)}
+              onChange={() => setLanguages([l.code])}
+            />
+            {l.label}
+          </label>
+        ))}
+      </div>
+
+      <div style={{ marginTop: "10px" }}>
+        <label>导出格式：</label>
+        <br />
+        <label>
+          <input
+            type="radio"
+            checked={format === "excel"}
+            onChange={() => setFormat("excel")}
           />
-        </div>
+          EXCEL
+        </label>
+        <label style={{ marginLeft: "10px" }}>
+          <input
+            type="radio"
+            checked={format === "pdf"}
+            onChange={() => setFormat("pdf")}
+          />
+          PDF
+        </label>
+      </div>
 
-        <div>
-          <label>选择需抓取字段：</label>
-          {['name', 'imageUrl', 'price', 'moq_value', 'description'].map((f) => (
-            <label key={f} style={{ marginRight: 10 }}>
-              <input
-                type="checkbox"
-                checked={fields.includes(f)}
-                onChange={() => toggleField(f)}
-              />
-              {f}
-            </label>
-          ))}
-        </div>
-
-        <div>
-          <label>选择语言：</label>
-          {[
-            ['zh', '中文'],
-            ['en', 'English'],
-            ['de', 'Deutsch'],
-          ].map(([val, label]) => (
-            <label key={val} style={{ marginRight: 10 }}>
-              <input
-                type="radio"
-                checked={language === val}
-                onChange={() => setLanguage(val)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-
-        <div>
-          <label>导出格式：</label>
-          {['excel', 'pdf'].map((fmt) => (
-            <label key={fmt} style={{ marginRight: 10 }}>
-              <input
-                type="radio"
-                checked={format === fmt}
-                onChange={() => setFormat(fmt)}
-              />
-              {fmt.toUpperCase()}
-            </label>
-          ))}
-        </div>
-
-        <div style={{ marginTop: 20 }}>
-          <button type="submit" disabled={downloading}>
-            {downloading ? '生成中...' : '生成表格'}
-          </button>
-        </div>
-      </form>
+      <div style={{ marginTop: "20px" }}>
+        <button onClick={handleGenerate} disabled={loading}>
+          {loading ? "生成中..." : "生成表格"}
+        </button>
+      </div>
     </div>
   );
 }
