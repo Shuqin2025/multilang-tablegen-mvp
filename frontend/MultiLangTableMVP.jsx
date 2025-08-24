@@ -1,304 +1,303 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
-/** 后端基地址（优先取环境变量 VITE_API_BASE） */
-const API_BASE =
-  (typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.VITE_API_BASE) ||
-  "https://multilang-backend-bl2m.onrender.com";
-
-/** 具体接口 */
-const ENDPOINTS = {
-  health: `${API_BASE}/health`,
-  tablegen: `${API_BASE}/api/tablegen`, // 同一个接口，根据 export: "excel" | "pdf" | "json"
-};
-
-/** 下载 Blob 的通用工具 */
-function downloadBlob(blob, filename) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
-}
+/**
+ * MultiLangTableMVP.jsx
+ * - 以 blob 方式下载 Excel / PDF（由后端返回二进制）
+ * - 需要前端环境变量：VITE_API_BASE = https://multilang-backend-bl2m.onrender.com
+ */
 
 export default function MultiLangTableMVP() {
-  // 表单状态
-  const [urlsText, setUrlsText] = useState("https://example.com/product/123");
+  // ------ 状态 ------
+  const [rawUrls, setRawUrls] = useState("https://example.com/product/123");
   const [fields, setFields] = useState({
     name: true,
-    imageUrl: true,
+    imageUrl: false,
     price: true,
     moq_value: false,
     description: false,
   });
-  const [lang, setLang] = useState("zh");       // zh | en | de
-  const [format, setFormat] = useState("excel"); // excel | pdf
-
-  // 运行状态
+  const [lang, setLang] = useState("zh"); // zh / en / de
+  const [exportFormat, setExportFormat] = useState("EXCEL"); // 或 "PDF"
   const [loading, setLoading] = useState(false);
-  const [health, setHealth] = useState({ ok: false, msg: "checking…" });
-  const [result, setResult] = useState(null);   // 用于“复制/下载 JSON” 预览
 
-  // 解析 URL 列表
-  const urlList = useMemo(
-    () =>
-      urlsText
-        .split(/\r?\n/)
-        .map((s) => s.trim())
-        .filter(Boolean),
-    [urlsText]
+  const selectedFields = useMemo(
+    () => Object.entries(fields).filter(([, v]) => v).map(([k]) => k),
+    [fields]
   );
 
-  // 健康检查
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(ENDPOINTS.health);
-        const ok = res.ok;
-        if (!cancelled) setHealth({ ok, msg: ok ? "running" : "unhealthy" });
-      } catch {
-        if (!cancelled) setHealth({ ok: false, msg: "offline" });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // ------ 工具：下载 blob ------
+  function downloadBlob(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
 
-  // 表单校验
-  const validate = () => {
-    if (!urlList.length) return "请至少输入 1 个商品 URL";
-    const bad = urlList.find((u) => !/^https?:\/\//i.test(u));
-    if (bad) return `URL 格式不正确：${bad}`;
-    const picked = Object.entries(fields)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (!picked.length) return "请至少选择 1 个字段";
-    if (!["zh", "en", "de"].includes(lang)) return "请选择语言";
-    if (!["excel", "pdf"].includes(format)) return "请选择导出格式";
-    return null;
-  };
-
-  // 生成并下载（唯一的点击处理函数）
-  const handleGenerate = async () => {
-    const err = validate();
-    if (err) return alert(err);
-
-    const payload = {
-      urls: urlList,
-      fields: Object.entries(fields)
-        .filter(([, v]) => v)
-        .map(([k]) => k),
-      languages: [lang],
-      export: format, // "excel" | "pdf"
-    };
-
-    setLoading(true);
+  // ------ 提交：向后端请求文件并下载 ------
+  async function handleSubmit(e) {
+    e.preventDefault();
     try {
-      const res = await fetch(ENDPOINTS.tablegen, {
+      setLoading(true);
+
+      const urls = rawUrls
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (!urls.length) {
+        alert("请先在文本框中粘贴至少 1 条产品 URL（每行一个）");
+        return;
+      }
+      if (!selectedFields.length) {
+        alert("请至少勾选 1 个要抓取的字段");
+        return;
+      }
+
+      const payload = {
+        urls,
+        fields: selectedFields,
+        languages: [lang],                      // ["zh"] / ["en"] / ["de"]
+        format: exportFormat.toLowerCase(),     // "excel" | "pdf"
+      };
+
+      // 注意：不要加 mode: "no-cors"
+      const base = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+      if (!base) {
+        throw new Error(
+          "缺少环境变量 VITE_API_BASE。请在 Render → Environment 中设置，如：https://multilang-backend-bl2m.onrender.com"
+        );
+      }
+
+      const res = await fetch(`${base}/api/tablegen`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      // 如果后端按文件流返回（推荐），content-type 会是 application/xxx
-      const ct = res.headers.get("content-type") || "";
-      if (res.ok && /application\//i.test(ct)) {
-        const blob = await res.blob();
-        const cd = res.headers.get("content-disposition") || "";
-        let filename =
-          cd.match(/filename\*?=(?:UTF-8''|")?([^;"']+)/i)?.[1] ||
-          `tablegen_${Date.now()}.${format === "pdf" ? "pdf" : "xlsx"}`;
+      if (!res.ok) {
+        // 后端出错时尝试读文本，便于提示
+        const txt = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
+      }
+
+      // ✅ 核心：拿二进制
+      const blob = await res.blob();
+
+      // 从响应头推断文件名（后端有设置的话）
+      const cd = res.headers.get("content-disposition") || "";
+      let filename =
+        (cd.match(/filename\*?=(?:UTF-8''|")?([^;"']+)/i)?.[1] || "").trim();
+
+      if (!filename) {
+        filename = `table_${Date.now()}.${
+          exportFormat === "PDF" ? "pdf" : "xlsx"
+        }`;
+      } else {
         try {
           filename = decodeURIComponent(filename);
         } catch {}
-        downloadBlob(blob, filename);
-
-        // 如果你也想在页面上展示 JSON，可以再追加一次 "json" 请求（可选）
-        try {
-          const r2 = await fetch(ENDPOINTS.tablegen, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...payload, export: "json" }),
-          });
-          setResult(r2.ok ? await r2.json() : null);
-        } catch {
-          setResult(null);
-        }
-        return;
       }
 
-      // 否则尽量解析文本/JSON用于报错提示
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        setResult(json);
-        alert(json?.message || `生成完成（返回 JSON）。如未触发下载，请检查后端导出实现。`);
-      } catch {
-        alert(`生成表格失败：HTTP ${res.status}：${text.slice(0, 400)}`);
-      }
-    } catch (e) {
-      alert(`请求失败：${e?.message || e}`);
+      downloadBlob(blob, filename);
+      alert("✅ 文件已开始下载");
+    } catch (err) {
+      console.error(err);
+      alert(`生成表格失败：${String(err.message || err)}`);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // 复制 / 下载 JSON（可选）
-  const handleCopyJSON = async () => {
-    if (!result) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(result, null, 2));
-      alert("已复制到剪贴板");
-    } catch {
-      alert("复制失败，请手动复制");
-    }
-  };
-  const handleDownloadJSON = () => {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], {
-      type: "application/json;charset=utf-8",
-    });
-    downloadBlob(blob, `tablegen_result_${Date.now()}.json`);
-  };
+  // ------ UI 辅助 ------
+  function toggleField(key) {
+    setFields((old) => ({ ...old, [key]: !old[key] }));
+  }
 
-  // 清空
-  const handleClear = () => {
-    setUrlsText("");
+  function clearAll() {
+    setRawUrls("");
     setFields({
-      name: true,
-      imageUrl: true,
-      price: true,
+      name: false,
+      imageUrl: false,
+      price: false,
       moq_value: false,
       description: false,
     });
-    setLang("zh");
-    setFormat("excel");
-    setResult(null);
-  };
+  }
 
+  // ------ 渲染 ------
   return (
-    <div style={{ padding: 16, maxWidth: 920, margin: "0 auto", lineHeight: 1.6 }}>
-      <h2>多语言表格制作 MVP</h2>
+    <div style={{ padding: 20, maxWidth: 820, margin: "0 auto", lineHeight: 1.6 }}>
+      <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>
+        多语言表格制作 MVP
+      </h2>
 
-      <div style={{ margin: "12px 0" }}>
-        <div style={{ marginBottom: 6 }}>产品页面 URL 列表（每行一个）</div>
-        <textarea
-          value={urlsText}
-          onChange={(e) => setUrlsText(e.target.value)}
-          rows={6}
-          style={{ width: "100%", fontFamily: "monospace" }}
-          placeholder="https://example.com/product/123"
-        />
-      </div>
+      <form onSubmit={handleSubmit}>
+        {/* URL 列表 */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            产品页面 URL 列表（每行一个）
+          </label>
+          <textarea
+            value={rawUrls}
+            onChange={(e) => setRawUrls(e.target.value)}
+            rows={6}
+            style={{ width: "100%", fontFamily: "monospace" }}
+            placeholder="https://example.com/prod1&#10;https://example.com/prod2"
+          />
+        </div>
 
-      <div style={{ margin: "12px 0" }}>
-        <div style={{ marginBottom: 6 }}>选择需抓取字段：</div>
-        {Object.entries(fields).map(([k, v]) => (
-          <label key={k} style={{ marginRight: 16 }}>
+        {/* 选择字段 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 6 }}>选择需抓取字段：</div>
+          <label style={{ marginRight: 16 }}>
             <input
               type="checkbox"
-              checked={v}
-              onChange={(e) => setFields((old) => ({ ...old, [k]: e.target.checked }))}
+              checked={fields.name}
+              onChange={() => toggleField("name")}
             />{" "}
-            {k}
+            name
           </label>
-        ))}
-      </div>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="checkbox"
+              checked={fields.imageUrl}
+              onChange={() => toggleField("imageUrl")}
+            />{" "}
+            imageUrl
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="checkbox"
+              checked={fields.price}
+              onChange={() => toggleField("price")}
+            />{" "}
+            price
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="checkbox"
+              checked={fields.moq_value}
+              onChange={() => toggleField("moq_value")}
+            />{" "}
+            moq_value
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="checkbox"
+              checked={fields.description}
+              onChange={() => toggleField("description")}
+            />{" "}
+            description
+          </label>
+        </div>
 
-      <div style={{ margin: "12px 0" }}>
-        <div style={{ marginBottom: 6 }}>选择语言：</div>
-        <label style={{ marginRight: 16 }}>
-          <input type="radio" value="zh" checked={lang === "zh"} onChange={() => setLang("zh")} /> 中文
-        </label>
-        <label style={{ marginRight: 16 }}>
-          <input type="radio" value="en" checked={lang === "en"} onChange={() => setLang("en")} /> English
-        </label>
-        <label style={{ marginRight: 16 }}>
-          <input type="radio" value="de" checked={lang === "de"} onChange={() => setLang("de")} /> Deutsch
-        </label>
-      </div>
+        {/* 语言 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 6 }}>选择语言：</div>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="lang"
+              value="zh"
+              checked={lang === "zh"}
+              onChange={() => setLang("zh")}
+            />{" "}
+            中文
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="lang"
+              value="en"
+              checked={lang === "en"}
+              onChange={() => setLang("en")}
+            />{" "}
+            English
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="lang"
+              value="de"
+              checked={lang === "de"}
+              onChange={() => setLang("de")}
+            />{" "}
+            Deutsch
+          </label>
+        </div>
 
-      <div style={{ margin: "12px 0" }}>
-        <div style={{ marginBottom: 6 }}>导出格式：</div>
-        <label style={{ marginRight: 16 }}>
-          <input
-            type="radio"
-            value="excel"
-            checked={format === "excel"}
-            onChange={() => setFormat("excel")}
-          />{" "}
-          EXCEL
-        </label>
-        <label style={{ marginRight: 16 }}>
-          <input type="radio" value="pdf" checked={format === "pdf"} onChange={() => setFormat("pdf")} /> PDF
-        </label>
-      </div>
+        {/* 导出格式 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 6 }}>导出格式：</div>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="fmt"
+              value="EXCEL"
+              checked={exportFormat === "EXCEL"}
+              onChange={() => setExportFormat("EXCEL")}
+            />{" "}
+            EXCEL
+          </label>
+          <label style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="fmt"
+              value="PDF"
+              checked={exportFormat === "PDF"}
+              onChange={() => setExportFormat("PDF")}
+            />{" "}
+            PDF
+          </label>
+        </div>
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={loading}
-          style={{
-            padding: "8px 16px",
-            background: "#5b6cff",
-            color: "#fff",
-            border: 0,
-            borderRadius: 6,
-            cursor: loading ? "not-allowed" : "pointer",
-          }}
-        >
-          {loading ? "提交中，请稍候…" : "生成表格"}
-        </button>
-
-        <button type="button" onClick={handleCopyJSON} disabled={!result}>
-          复制 JSON
-        </button>
-        <button type="button" onClick={handleDownloadJSON} disabled={!result}>
-          下载 JSON
-        </button>
-        <button type="button" onClick={handleClear}>清空</button>
-
-        <span style={{ marginLeft: "auto", opacity: 0.8, fontSize: 12 }}>
-          API：{API_BASE}{" "}
-          <span
+        {/* 按钮区 */}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button
+            type="submit"
+            disabled={loading}
             style={{
-              display: "inline-block",
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: health.ok ? "#22c55e" : "#ef4444",
-              verticalAlign: "middle",
-              marginLeft: 6,
-            }}
-            title={`health: ${health.msg}`}
-          />
-        </span>
-      </div>
-
-      {result && (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ marginBottom: 6, fontWeight: 600 }}>结果预览（JSON）</div>
-          <pre
-            style={{
-              background: "#f7f7fa",
-              border: "1px solid #eee",
-              padding: 12,
+              padding: "8px 14px",
+              background: "#4f46e5",
+              color: "#fff",
+              border: 0,
               borderRadius: 6,
-              maxHeight: 360,
-              overflow: "auto",
+              cursor: loading ? "not-allowed" : "pointer",
             }}
           >
-            {JSON.stringify(result, null, 2)}
-          </pre>
+            {loading ? "生成中，请稍候…" : "生成表格"}
+          </button>
+
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={loading}
+            style={{
+              padding: "8px 14px",
+              background: "#f3f4f6",
+              color: "#111827",
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            清空
+          </button>
         </div>
-      )}
+      </form>
+
+      {/* 友情提示 */}
+      <div style={{ marginTop: 16, color: "#6b7280", fontSize: 13 }}>
+        <div>
+          环境变量 <code>VITE_API_BASE</code> 指向：{" "}
+          <code>https://multilang-backend-bl2m.onrender.com</code>
+        </div>
+        <div>Excel 已经按二进制下载；PDF 目前会返回 501（待接入 pdfmake 后再启用）。</div>
+      </div>
     </div>
   );
 }
