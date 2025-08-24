@@ -1,3 +1,10 @@
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
 // backend/services/crawler.js
 import axios from 'axios';
 import * as cheerio from 'cheerio';
