@@ -7,11 +7,10 @@ const API_BASE =
     import.meta.env.VITE_API_BASE) ||
   'https://multilang-backend-bl2m.onrender.com';
 
-// 后端具体接口路径
+// 后端接口（统一用 /api/tablegen）
 const ENDPOINTS = {
   health: `${API_BASE}/health`,
-  excel: `${API_BASE}/api/tablegen`, // 生成 Excel
-  pdf: `${API_BASE}/api/pdf`,        // 生成 PDF
+  tablegen: `${API_BASE}/api/tablegen`, // export: "excel" | "pdf"
 };
 
 // 简单工具：下载 Blob
@@ -36,11 +35,11 @@ export default function MultiLangTableMVP() {
     moq_value: false,
     description: false,
   });
-  const [lang, setLang] = useState('zh'); // zh / en / de
+  const [lang, setLang] = useState('zh');     // zh / en / de
   const [format, setFormat] = useState('excel'); // excel / pdf
 
   // 结果与 UI 状态
-  const [result, setResult] = useState(null); // 抓取后的 JSON 结果
+  const [result, setResult] = useState(null); // 抓取后的 JSON 结果（可选）
   const [loading, setLoading] = useState(false);
   const [health, setHealth] = useState({ ok: false, msg: 'checking…' });
 
@@ -58,17 +57,13 @@ export default function MultiLangTableMVP() {
     (async () => {
       try {
         const res = await fetch(ENDPOINTS.health);
-        const data = await res.json().catch(() => ({}));
-        if (!cancelled) {
-          setHealth({ ok: res.ok, msg: res.ok ? 'running' : 'unhealthy' });
-        }
-      } catch (err) {
+        await res.json().catch(() => ({}));
+        if (!cancelled) setHealth({ ok: res.ok, msg: res.ok ? 'running' : 'unhealthy' });
+      } catch {
         if (!cancelled) setHealth({ ok: false, msg: 'offline' });
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   // 校验
@@ -76,90 +71,76 @@ export default function MultiLangTableMVP() {
     if (!urlList.length) return '请至少输入 1 个商品 URL';
     const bad = urlList.find(u => !/^https?:\/\//i.test(u));
     if (bad) return `URL 格式不正确：${bad}`;
-    const picked = Object.entries(fields)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
+    const picked = Object.entries(fields).filter(([, v]) => v).map(([k]) => k);
     if (!picked.length) return '请至少选择 1 个字段';
     if (!['zh', 'en', 'de'].includes(lang)) return '请选择语言';
     if (!['excel', 'pdf'].includes(format)) return '请选择导出格式';
     return null;
   };
 
-  // 生成
+  // 生成（下载 Excel/PDF）
   const handleGenerate = async () => {
     const err = validate();
-    if (err) {
-      alert(err);
-      return;
-    }
+    if (err) { alert(err); return; }
 
     const payload = {
       urls: urlList,
-      fields: Object.entries(fields)
-        .filter(([, v]) => v)
-        .map(([k]) => k),
+      fields: Object.entries(fields).filter(([, v]) => v).map(([k]) => k),
       languages: [lang],
       export: format, // "excel" | "pdf"
     };
 
     setLoading(true);
     try {
-      // 先让后端抓取并返回 JSON（也便于页面展示）
-      // 这里为了简化，直接根据导出格式选择对应接口一次性拿文件。
-      // 如果你希望先拿 JSON，再单独点击导出，也可以改成先 hit 一个 `/api/scrape`。
-      const endpoint = format === 'excel' ? ENDPOINTS.excel : ENDPOINTS.pdf;
-      const res = await fetch(endpoint, {
+      const res = await fetch(ENDPOINTS.tablegen, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      // 文件流下载
-      if (res.ok && res.headers.get('content-type')?.includes('application/')) {
-        const blob = await res.blob();
-        const filename =
-          (format === 'excel'
-            ? `tablegen_${Date.now()}.xlsx`
-            : `tablegen_${Date.now()}.pdf`);
-        downloadBlob(blob, filename);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
+      }
 
-        // 为了保持页面有“结果”，尝试同时拿一份 JSON（如果后端有返回）
-        try {
-          const clone = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...payload, export: 'json' }),
-          });
-          if (clone.ok) {
-            const json = await clone.json();
-            setResult(json);
-          } else {
-            setResult(null);
-          }
-        } catch {
+      // 正确姿势：直接拿 blob
+      const blob = await res.blob();
+
+      // 文件名（尝试从响应头读）
+      const cd = res.headers.get('content-disposition') || '';
+      let filename = (cd.match(/filename\*?=(?:UTF-8''|")?([^;"']+)/i)?.[1] || '').trim();
+      if (!filename) {
+        filename = `table_${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`;
+      } else {
+        try { filename = decodeURIComponent(filename); } catch {}
+      }
+
+      downloadBlob(blob, filename);
+
+      // 可选：再请求一次 JSON 预览（如果后端支持）
+      try {
+        const resJson = await fetch(ENDPOINTS.tablegen, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, export: 'json' }),
+        });
+        if (resJson.ok) {
+          const json = await resJson.json();
+          setResult(json);
+        } else {
           setResult(null);
         }
-      } else {
-        // （兼容）有些实现会先返回 JSON，再让前端二次下载
-        // 这里尝试解析 JSON 方便排错
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text);
-          setResult(json);
-          alert(json?.message || '生成完成（返回了 JSON）。如果未下载，请检查后端导出实现。');
-        } catch {
-          // 可能是 HTML 错误页
-          alert(`生成表格失败：HTTP ${res.status}：${text.slice(0, 400)}`);
-        }
+      } catch {
+        setResult(null);
       }
     } catch (e) {
-      alert(`请求失败：${e?.message || e}`);
+      alert(`生成表格失败：${e?.message || e}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // 复制 JSON
+  // 复制/下载 JSON（可选）
   const handleCopyJSON = async () => {
     if (!result) return;
     try {
@@ -169,26 +150,16 @@ export default function MultiLangTableMVP() {
       alert('复制失败，请手动复制');
     }
   };
-
-  // 下载 JSON
   const handleDownloadJSON = () => {
     if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json;charset=utf-8' });
     downloadBlob(blob, `tablegen_result_${Date.now()}.json`);
   };
 
   // 清空
   const handleClear = () => {
     setUrlsText('');
-    setFields({
-      name: true,
-      imageUrl: true,
-      price: true,
-      moq_value: false,
-      description: false,
-    });
+    setFields({ name: true, imageUrl: true, price: true, moq_value: false, description: false });
     setLang('zh');
     setFormat('excel');
     setResult(null);
@@ -226,53 +197,23 @@ export default function MultiLangTableMVP() {
       <div style={{ margin: '12px 0' }}>
         <div style={{ marginBottom: 6 }}>选择语言：</div>
         <label style={{ marginRight: 16 }}>
-          <input
-            type="radio"
-            value="zh"
-            checked={lang === 'zh'}
-            onChange={() => setLang('zh')}
-          />{' '}
-          中文
+          <input type="radio" value="zh" checked={lang === 'zh'} onChange={() => setLang('zh')} /> 中文
         </label>
         <label style={{ marginRight: 16 }}>
-          <input
-            type="radio"
-            value="en"
-            checked={lang === 'en'}
-            onChange={() => setLang('en')}
-          />{' '}
-          English
+          <input type="radio" value="en" checked={lang === 'en'} onChange={() => setLang('en')} /> English
         </label>
         <label style={{ marginRight: 16 }}>
-          <input
-            type="radio"
-            value="de"
-            checked={lang === 'de'}
-            onChange={() => setLang('de')}
-          />{' '}
-          Deutsch
+          <input type="radio" value="de" checked={lang === 'de'} onChange={() => setLang('de')} /> Deutsch
         </label>
       </div>
 
       <div style={{ margin: '12px 0' }}>
         <div style={{ marginBottom: 6 }}>导出格式：</div>
         <label style={{ marginRight: 16 }}>
-          <input
-            type="radio"
-            value="excel"
-            checked={format === 'excel'}
-            onChange={() => setFormat('excel')}
-          />{' '}
-          EXCEL
+          <input type="radio" value="excel" checked={format === 'excel'} onChange={() => setFormat('excel')} /> EXCEL
         </label>
         <label style={{ marginRight: 16 }}>
-            <input
-              type="radio"
-              value="pdf"
-              checked={format === 'pdf'}
-              onChange={() => setFormat('pdf')}
-            />{' '}
-            PDF
+          <input type="radio" value="pdf" checked={format === 'pdf'} onChange={() => setFormat('pdf')} /> PDF
         </label>
       </div>
 
@@ -292,12 +233,8 @@ export default function MultiLangTableMVP() {
           {loading ? '提交中，请稍候…' : '生成表格'}
         </button>
 
-        <button onClick={handleCopyJSON} disabled={!result}>
-          复制 JSON
-        </button>
-        <button onClick={handleDownloadJSON} disabled={!result}>
-          下载 JSON
-        </button>
+        <button onClick={handleCopyJSON} disabled={!result}>复制 JSON</button>
+        <button onClick={handleDownloadJSON} disabled={!result}>下载 JSON</button>
         <button onClick={handleClear}>清空</button>
 
         <span style={{ marginLeft: 'auto', opacity: 0.8, fontSize: 12 }}>
@@ -317,7 +254,6 @@ export default function MultiLangTableMVP() {
         </span>
       </div>
 
-      {/* 结果预览 */}
       {result && (
         <div style={{ marginTop: 16 }}>
           <div style={{ marginBottom: 6, fontWeight: 600 }}>结果预览（JSON）</div>
@@ -338,4 +274,3 @@ export default function MultiLangTableMVP() {
     </div>
   );
 }
-
