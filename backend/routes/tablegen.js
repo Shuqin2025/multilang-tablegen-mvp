@@ -1,53 +1,54 @@
 // backend/routes/tablegen.js
-import express from 'express';
-import * as XLSX from 'xlsx';
-import { fetchProducts } from '../services/crawler.js';
-
+const express = require('express');
 const router = express.Router();
 
-/**
- * POST /api/tablegen
- * body: { urls: string[], fields: string[], languages: string[], format: "excel" | "pdf" }
- */
-router.post('/', async (req, res) => {
+let crawlProduct;
+try {
+  ({ crawlProduct } = require('../services/crawler'));
+} catch (e) {
+  // 如果这里 require 失败，路由仍可注册，返回 500 说明原因，避免服务直接崩溃
+  console.error('Failed to require ../services/crawler:', e);
+  router.post('/tablegen', (req, res) => {
+    res.status(500).json({ ok: false, error: 'crawler-load-failed', detail: String(e) });
+  });
+}
+
+// 健康检查
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// 真实抓取接口（JSON 版本）。前端勾选字段 + URL 列表
+router.post('/tablegen', async (req, res) => {
   try {
-    const {
-      urls = [],
-      fields = ['name', 'price', 'imageUrl', 'moq_value', 'description'],
-      languages = ['zh'],
-      format = 'excel',
-    } = req.body || {};
+    const { urls = [], fields = [], languages = [], format = 'json' } = req.body || {};
 
-    // 1) 真实抓取
-    const rawRows = await fetchProducts(urls);
-
-    // 2) 仅保留勾选字段，并固定表头顺序：url + fields
-    const header = ['url', ...fields];
-    const aoa = [header];
-    rawRows.forEach((r) => {
-      const row = [r.url];
-      fields.forEach((f) => row.push(r[f] ?? ''));
-      aoa.push(row);
-    });
-
-    if (format === 'excel') {
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="tablegen_${Date.now()}.xlsx"`);
-      return res.send(buf);
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ ok: false, error: 'no-urls' });
+    }
+    if (!Array.isArray(fields)) {
+      return res.status(400).json({ ok: false, error: 'invalid-fields' });
     }
 
-    // 暂时默认 JSON（PDF 暂不启用）
-    return res.json({ ok: true, rows: rawRows, fields, languages, note: 'excel 已支持下载' });
+    // 并发抓取（可根据需要加限制）
+    const rows = await Promise.all(
+      urls.map(async (u) => {
+        try {
+          return await crawlProduct(u, fields);
+        } catch (err) {
+          return { error: String(err), url: u };
+        }
+      })
+    );
+
+    // 先返回 JSON（前端能渲染和下载 JSON）
+    // 如果你已经有“生成 Excel / PDF”的现成函数，保留它并在这里按 format 分支即可
+    return res.json({ ok: true, result: rows, meta: { format, fields, languages } });
   } catch (err) {
-    console.error('tablegen error:', err);
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error('POST /api/tablegen Error:', err);
+    res.status(500).json({ ok: false, error: 'internal', detail: String(err) });
   }
 });
 
-export default router;
+module.exports = router;
 
