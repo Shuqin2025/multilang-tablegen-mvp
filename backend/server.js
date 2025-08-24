@@ -11,8 +11,33 @@ const cors = require('cors');
 
 const app = express();
 
-// 中间件
-app.use(cors());
+/* ===== CORS：显式处理预检 + 允许下载头暴露 =====
+   说明：
+   1) 之前只有 app.use(cors())，不会自动把 OPTIONS 预检处理好；
+      这里加上 app.options('*', cors(corsOptions))。
+   2) 为了让前端能读到文件名，需要暴露 Content-Disposition。
+*/
+const corsOptions = {
+  origin: [
+    'https://tablegen-mvp-frontend.onrender.com', // 你的前端域名
+    'http://localhost:5173',                      // 本地调试（可留着）
+    /\.onrender\.com$/                            // 允许其他 Render 子域（可选）
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+  maxAge: 86400
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // <=== 关键：响应 CORS 预检
+
+// 让浏览器能读到 Content-Disposition（用于下载文件名）
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+  next();
+});
+/* ===================================================== */
+
 app.use(express.json({ limit: '2mb' }));
 
 // 健康检查
