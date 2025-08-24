@@ -1,147 +1,188 @@
 // frontend/TablegenPage.jsx
-import React, { useState } from "react";
-import { postJSON } from "./apiBase";
+import React, { useMemo, useState } from "react";
+import { API } from "./apiBase"; // ✅ 与你的 apiBase.js 对应（命名导出）
 
+/**
+ * - 调后端 POST ${API.tablegen}
+ * - Excel/PDF 响应用 blob 下载，JSON 响应才 res.json()
+ */
 export default function TablegenPage() {
-  const [urlsText, setUrlsText] = useState("https://example.com/product/123");
-  const [fields, setFields] = useState(["name", "price"]);
-  const [languages, setLanguages] = useState(["zh"]);
-  const [format, setFormat] = useState("excel");
+  const [urlText, setUrlText] = useState("https://example.com/product/123");
+  const [fields, setFields] = useState({
+    name: true,
+    imageUrl: false,
+    price: true,
+    moq_value: false,
+    description: false,
+  });
+  const [lang, setLang] = useState("zh");
+  const [format, setFormat] = useState("excel"); // "excel" | "pdf"
   const [loading, setLoading] = useState(false);
 
-  const allFields = ["name", "imageUrl", "price", "moq_value", "description"];
-  const allLangs = [
-    { code: "zh", label: "中文" },
-    { code: "en", label: "English" },
-    { code: "de", label: "Deutsch" },
-  ];
+  const urls = useMemo(
+    () =>
+      urlText
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [urlText]
+  );
 
-  function toggleField(f) {
-    setFields((prev) =>
-      prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
-    );
+  const selectedFields = useMemo(
+    () => Object.keys(fields).filter((k) => fields[k]),
+    [fields]
+  );
+
+  function toggleField(key) {
+    setFields((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function toggleLang(code) {
-    setLanguages((prev) =>
-      prev.includes(code) ? prev.filter((x) => x !== code) : [...prev, code]
-    );
+  function getFilenameFromDisposition(disp, fallback) {
+    if (!disp) return fallback;
+    const star = /filename\*\s*=\s*[^']*''([^;]+)/i.exec(disp);
+    if (star) return decodeURIComponent(star[1]).replace(/["']/g, "");
+    const simple = /filename\s*=\s*("?)([^";]+)\1/i.exec(disp);
+    if (simple) return simple[2].replace(/["']/g, "");
+    return fallback;
   }
 
   async function handleGenerate() {
+    if (!urls.length) return alert("请先填写至少一个商品URL（每行一个）");
+    if (!selectedFields.length) return alert("请至少勾选一个字段");
+
     setLoading(true);
     try {
-      const urls = urlsText
-        .split("\n")
-        .map((u) => u.trim())
-        .filter(Boolean);
-
-      const res = await postJSON("/api/tablegen", {
+      const payload = {
         urls,
-        fields,
-        languages,
-        format,
+        fields: selectedFields,
+        languages: [lang],
+        format, // "excel" 或 "pdf"
+      };
+
+      const res = await fetch(API.tablegen, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const t = await res.text();
-        alert(`后端返回错误：${res.status} ${t}`);
-        return;
+        const txt = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${txt || "请求失败"}`);
       }
 
-      if (format === "excel") {
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      const isExcel = ct.includes(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      const isPdf = ct.includes("application/pdf");
+
+      if (isExcel || isPdf) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
+        const disp = res.headers.get("content-disposition") || "";
+        const fallback = isPdf ? "result.pdf" : "result.xlsx";
+        const filename = getFilenameFromDisposition(disp, fallback);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `tablegen_${Date.now()}.xlsx`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+        return;
+      }
+
+      // 非文件：JSON 占位
+      const data = await res.json().catch(() => null);
+      if (data) {
+        console.log("后端JSON响应:", data);
+        alert("后端返回 JSON（非文件下载）。请在控制台查看详情。");
       } else {
-        const data = await res.json();
-        alert("返回 JSON: " + JSON.stringify(data, null, 2));
+        alert("已完成，但响应既不是文件也不是 JSON。");
       }
     } catch (err) {
       console.error(err);
-      alert(`生成表格失败：${err?.message || err}`);
+      alert(`生成表格失败：${err.message}`);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={{ padding: "20px" }}>
+    <div style={{ maxWidth: 980, padding: 24, lineHeight: 1.6 }}>
       <h2>多语言表格制作 MVP</h2>
 
-      <div>
-        <label>产品页面 URL 列表（每行一个）</label>
-        <br />
+      <div style={{ marginBottom: 12 }}>
+        <div>产品页面 URL 列表（每行一个）</div>
         <textarea
-          rows={5}
-          style={{ width: "500px" }}
-          value={urlsText}
-          onChange={(e) => setUrlsText(e.target.value)}
+          value={urlText}
+          onChange={(e) => setUrlText(e.target.value)}
+          rows={6}
+          style={{ width: "100%", fontFamily: "monospace" }}
+          placeholder={"https://example.com/prod1\nhttps://example.com/prod2"}
         />
       </div>
 
-      <div style={{ marginTop: "10px" }}>
-        <label>选择需抓取字段：</label>
-        <br />
-        {allFields.map((f) => (
-          <label key={f} style={{ marginRight: "10px" }}>
+      <div style={{ marginBottom: 12 }}>
+        <div>选择需抓取字段：</div>
+        {[
+          ["name", "name"],
+          ["imageUrl", "imageUrl"],
+          ["price", "price"],
+          ["moq_value", "moq_value"],
+          ["description", "description"],
+        ].map(([key, label]) => (
+          <label key={key} style={{ marginRight: 16 }}>
             <input
               type="checkbox"
-              checked={fields.includes(f)}
-              onChange={() => toggleField(f)}
-            />
-            {f}
+              checked={!!fields[key]}
+              onChange={() => toggleField(key)}
+            />{" "}
+            {label}
           </label>
         ))}
       </div>
 
-      <div style={{ marginTop: "10px" }}>
-        <label>选择语言：</label>
-        <br />
-        {allLangs.map((l) => (
-          <label key={l.code} style={{ marginRight: "10px" }}>
+      <div style={{ marginBottom: 12 }}>
+        <div>选择语言：</div>
+        {[
+          ["zh", "中文"],
+          ["en", "English"],
+          ["de", "Deutsch"],
+        ].map(([v, label]) => (
+          <label key={v} style={{ marginRight: 16 }}>
             <input
               type="radio"
-              checked={languages.includes(l.code)}
-              onChange={() => setLanguages([l.code])}
-            />
-            {l.label}
+              name="lang"
+              checked={lang === v}
+              onChange={() => setLang(v)}
+            />{" "}
+            {label}
           </label>
         ))}
       </div>
 
-      <div style={{ marginTop: "10px" }}>
-        <label>导出格式：</label>
-        <br />
-        <label>
-          <input
-            type="radio"
-            checked={format === "excel"}
-            onChange={() => setFormat("excel")}
-          />
-          EXCEL
-        </label>
-        <label style={{ marginLeft: "10px" }}>
-          <input
-            type="radio"
-            checked={format === "pdf"}
-            onChange={() => setFormat("pdf")}
-          />
-          PDF
-        </label>
+      <div style={{ marginBottom: 16 }}>
+        <div>导出格式：</div>
+        {[
+          ["excel", "EXCEL"],
+          ["pdf", "PDF"],
+        ].map(([v, label]) => (
+          <label key={v} style={{ marginRight: 16 }}>
+            <input
+              type="radio"
+              name="format"
+              checked={format === v}
+              onChange={() => setFormat(v)}
+            />{" "}
+            {label}
+          </label>
+        ))}
       </div>
 
-      <div style={{ marginTop: "20px" }}>
-        <button onClick={handleGenerate} disabled={loading}>
-          {loading ? "生成中..." : "生成表格"}
-        </button>
-      </div>
+      <button onClick={handleGenerate} disabled={loading}>
+        {loading ? "生成中..." : "生成表格"}
+      </button>
     </div>
   );
 }
