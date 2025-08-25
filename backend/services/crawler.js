@@ -1,116 +1,181 @@
 // backend/services/crawler.js
-// 100% CommonJS；Node 20 自带 fetch，这里直接用；解析用 cheerio（已加到 package.json）
+import axios from "axios";
+import * as cheerio from "cheerio";
+import { URL as NodeURL } from "url";
 
-const cheerio = require('cheerio');
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
-/** 简单的抓取器：尽量从 OpenGraph / JSON-LD / 常见选择器提取，兜底用正则扫价格 */
-async function crawlProduct(url, wantedFields = []) {
-  const html = await fetchHTML(url);
-  const data = parseFromHTML(html);
-
-  // 仅返回前端勾选的字段
-  const row = {};
-  if (wantedFields.includes('name')) row.name = data.name || '';
-  if (wantedFields.includes('imageUrl')) row.imageUrl = data.imageUrl || '';
-  if (wantedFields.includes('price')) row.price = data.price || '';
-  if (wantedFields.includes('moq_value')) row.moq_value = data.moq_value || '';
-  if (wantedFields.includes('description')) row.description = data.description || '';
-
-  return row;
+/** 解析价格：兼容 12,34 € / 12.34 / €12,34 等 */
+function parsePrice(str = "") {
+  const m = String(str)
+    .replace(/\s+/g, " ")
+    .match(/(\d{1,3}(?:[.\s]\d{3})*|\d+)([,.]\d{2})?\s*€?/);
+  if (!m) return "";
+  const intPart = m[1].replace(/[.\s]/g, "");
+  const frac = (m[2] || "").replace(",", "."); // 逗号换点
+  return frac ? `${intPart}${frac}` : intPart;
 }
 
+/** 清理空白 */
+const clean = (s = "") => s.replace(/\s+/g, " ").trim();
+
+/** 绝对地址 */
+function absUrl(href, base) {
+  try {
+    return new NodeURL(href, base).toString();
+  } catch {
+    return href || "";
+  }
+}
+
+/** 请求 HTML */
 async function fetchHTML(url) {
-  const res = await fetch(url, {
-    headers: {
-      // 伪装正常浏览器，避免有些站点 403
-      'user-agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
-      'accept-language': 'en,de,zh-CN;q=0.9',
-    },
+  const res = await axios.get(url, {
+    timeout: 20000,
+    headers: { "User-Agent": UA, Accept: "text/html,*/*" },
+    // 某些站需要 Accept-Language；需要时再打开
+    // headers: { ...headers, "Accept-Language": "de-DE,de;q=0.9,en;q=0.8" },
+    validateStatus: (s) => s >= 200 && s < 400,
   });
-  if (!res.ok) {
-    throw new Error(`Fetch failed: ${res.status} ${res.statusText} for ${url}`);
-  }
-  return await res.text();
+  return res.data;
 }
 
-function parseFromHTML(html) {
-  const $ = cheerio.load(html);
+/** 抓“单个商品详情页” */
+function extractFromProductPage($, baseUrl) {
+  const name =
+    clean($("h1").first().text()) ||
+    clean($('meta[property="og:title"]').attr("content") || "");
 
-  // 1) OpenGraph
-  let name =
-    $('meta[property="og:title"]').attr('content') ||
-    $('meta[name="og:title"]').attr('content') ||
-    '';
-  let imageUrl =
-    $('meta[property="og:image"]').attr('content') ||
-    $('meta[name="og:image"]').attr('content') ||
-    '';
+  const price =
+    parsePrice(
+      $(
+        '[itemprop="price"], .price, .product-price, .price--content, [data-price]'
+      )
+        .first()
+        .text()
+    ) ||
+    parsePrice(
+      $(
+        "body"
+      ).text()
+    );
 
-  // 2) JSON-LD（Product）
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const raw = $(el).contents().text();
-      const json = JSON.parse(raw);
+  const imageUrlRaw =
+    $('meta[property="og:image"]').attr("content") ||
+    $("img[itemprop='image'], .product-image img, .product__image img")
+      .first()
+      .attr("src") ||
+    $("img").first().attr("src");
 
-      const pickProduct = (node) => {
-        if (!node) return null;
-        if (Array.isArray(node)) return node.find((x) => pickProduct(x));
-        if (node['@type'] === 'Product') return node;
-        // 有些站会把 Product 放到 graph 里
-        if (node['@graph']) return pickProduct(node['@graph']);
-        return null;
-      };
+  const imageUrl = absUrl(imageUrlRaw, baseUrl);
 
-      const product = pickProduct(json);
-      if (product) {
-        if (!name && product.name) name = product.name;
-        if (!imageUrl && product.image) {
-          imageUrl = Array.isArray(product.image) ? product.image[0] : product.image;
-        }
-        if (!priceFromHtml.price) {
-          // offers 可能是对象或数组
-          const offers = product.offers;
-          const offer = Array.isArray(offers) ? offers[0] : offers;
-          if (offer && (offer.price || offer.priceSpecification?.price)) {
-            priceFromHtml.price = String(offer.price || offer.priceSpecification.price);
-          }
-        }
-        if (!desc && product.description) desc = String(product.description);
-      }
-    } catch (_) {}
-  });
-
-  // 3) 常见选择器兜底
-  let price =
-    $('meta[property="product:price:amount"]').attr('content') ||
-    $('meta[name="price"]').attr('content') ||
-    $('[itemprop="price"]').attr('content') ||
-    $('[data-price]').attr('data-price') ||
-    '';
-
-  // 4) 价格用正则再兜底（€/$/¥ 等，去空格，逗号转点）
-  const textOneLine = $('body').text().replace(/\s+/g, ' ');
-  if (!price) {
-    const m = textOneLine.match(/(?:€|\$|¥)\s?(\d+(?:[.,]\d{2})?)/);
-    if (m) price = m[1].replace(',', '.');
-  }
-
-  // 可选：描述
-  let desc =
-    $('meta[name="description"]').attr('content') ||
-    $('meta[property="og:description"]').attr('content') ||
-    '';
-
-  const priceFromHtml = { price };
+  const description =
+    clean($("[itemprop='description'], .product-description").text()) ||
+    clean($('meta[name="description"]').attr("content") || "");
 
   return {
-    name: name || '',
-    imageUrl: imageUrl || '',
-    price: priceFromHtml.price || '',
-    description: desc || '',
-    moq_value: '', // 目前拿不到就留空
+    url: baseUrl,
+    name,
+    price,
+    imageUrl,
+    description,
   };
 }
 
-module.exports = { crawlProduct };
+/** 抓“列表/分类页”里多个商品卡片 */
+function extractFromListPage($, baseUrl) {
+  // 尽量匹配常见列表容器/卡片
+  const items =
+    $(".product, .productbox, .product-item, .product-list .item, li.product")
+      .toArray();
+  const linksSeen = new Set();
+  const rows = [];
+
+  const pickPriceNear = (ctx) => {
+    const priceText =
+      $(ctx).find(".price, .product-price, [itemprop='price']").first().text() ||
+      $(ctx).text();
+    return parsePrice(priceText);
+  };
+
+  const getTitle = (ctx) =>
+    clean(
+      $(ctx).find("h2, h3, .title, .product-title, a").first().text() ||
+        $(ctx).find("a").first().attr("title") ||
+        ""
+    );
+
+  const getImg = (ctx) =>
+    $(ctx).find("img").first().attr("data-src") ||
+    $(ctx).find("img").first().attr("src") ||
+    $('meta[property="og:image"]').attr("content") ||
+    "";
+
+  // 先尝试结构化卡片
+  for (const el of items) {
+    const a = $(el).find("a[href$='.html'], a[href*='.html']").first();
+    const href = a.attr("href");
+    if (!href) continue;
+    const abs = absUrl(href, baseUrl);
+    if (linksSeen.has(abs)) continue;
+    linksSeen.add(abs);
+
+    rows.push({
+      url: abs,
+      name: getTitle(el),
+      price: pickPriceNear(el),
+      imageUrl: absUrl(getImg(el), baseUrl),
+      description: "",
+    });
+  }
+
+  // 如果上面没抓到，再兜底：页面所有指向 .html 的链接（去重）
+  if (rows.length === 0) {
+    $("a[href$='.html']").each((_, a) => {
+      const href = $(a).attr("href");
+      const abs = absUrl(href, baseUrl);
+      if (linksSeen.has(abs)) return;
+      linksSeen.add(abs);
+      rows.push({
+        url: abs,
+        name: clean($(a).text() || $(a).attr("title") || ""),
+        price: "", // 列表兜底不强求价格
+        imageUrl: "",
+        description: "",
+      });
+    });
+  }
+
+  return rows;
+}
+
+/** 兼容 auto-schmuck 的抓取：列表页→多条；详情页→单条 */
+export async function crawl(url) {
+  const html = await fetchHTML(url);
+  const $ = cheerio.load(html);
+
+  // 简单判断：出现多个商品卡片就是列表页，否则按详情页处理
+  const looksLikeList =
+    $(".product, .productbox, .product-item, .product-list .item, li.product")
+      .length >= 2;
+
+  if (looksLikeList) {
+    const rows = extractFromListPage($, url);
+    if (rows.length) return rows;
+    // 兜底：即使判断为列表，若结构不符合，回退抓单条（取 meta 信息）
+    return [extractFromProductPage($, url)];
+  }
+  // 详情页
+  return [extractFromProductPage($, url)];
+}
+
+/** 单 URL → 多条（列表）/一条（详情）并包上错误 */
+export async function crawlSafe(url) {
+  try {
+    return await crawl(url);
+  } catch (err) {
+    return [{ url, error: (err && err.message) || String(err) }];
+  }
+}
+
