@@ -1,16 +1,15 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "multilang-tablegen backend service",
+  "description": "Backend for multilangg-tablegen-mvp",
+  "type": "module",                      // <== 必须有
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "axios": "^1.4.0",
+    "axios": "^1.6.7",
     "body-parser": "^1.20.2",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
@@ -19,9 +18,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^3.1.0"
   },
-  "engines": {
-    "node": "20.x"
-  }
+  "engines": { "node": ">=18" }
 }
