@@ -3,75 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MVP1 Excel Export</title>
+    <title>MVP1 报价 Demo</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
-      h1 { margin: 0 0 12px; font-size: 18px; }
-      /* 抓取 Demo UI */
-      #scrape-box { margin-top: 24px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; }
-      #scrape-box h3 { margin: 0 0 8px; font-size: 16px; }
-      #scrape-form { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-      #scrape-url { flex: 1; min-width: 280px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; }
-      #scrape-btn { padding: 6px 10px; border: 1px solid #888; border-radius: 6px; background: #fff; cursor: pointer; }
-      #scrape-btn:hover { background: #f0f0f0; }
-      #scrape-result { margin-top: 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap;
-                       background: #fff; border: 1px solid #e2e2e2; border-radius: 8px; padding: 10px; }
-      .muted { color: #666; font-size: 12px; }
+      body {
+        font-family: sans-serif;
+        margin: 1em;
+      }
+      #scrape-box {
+        margin-top: 2em;
+        padding: 1em;
+        border: 1px solid #ccc;
+      }
+      #scrape-box input {
+        width: 60%;
+        padding: 4px;
+      }
+      #scrape-result {
+        margin-top: 1em;
+        white-space: pre-wrap;
+        font-size: 0.9em;
+        background: #f8f8f8;
+        padding: 0.5em;
+        border: 1px solid #ddd;
+      }
     </style>
   </head>
   <body>
-    <!-- 你原有的 Excel 页面内容/按钮/脚本请继续保留在这里（如有） -->
-    <h1>结构化报价（MVP1）</h1>
-    <div class="muted">
-      本页保留了 MVP1 的 Excel 导出能力，并新增网页抓取 Demo（后端共用 MVP2）。
-    </div>
+    <h2>结构化报价（MVP1）</h2>
+    <p>本页面保留了 MVP1 的 Excel 导出功能，并新增网页抓取 Demo。</p>
 
-    <!-- 抓取 Demo UI -->
     <div id="scrape-box">
-      <h3>网页抓取 Demo（GET /v1/api/scrape）</h3>
-      <form id="scrape-form" onsubmit="return false;">
-        <input id="scrape-url" type="text" value="https://example.com" />
-        <button id="scrape-btn">抓取</button>
-      </form>
-      <div class="muted">API 基址取自环境变量：<code>VITE_API_BASE</code></div>
-      <div id="scrape-result">（结果会显示在这里）</div>
+      <h3>🌐 网页抓取 Demo (GET /v1/api/scrape)</h3>
+      <input id="scrape-url" type="text" value="https://example.com" />
+      <button id="scrape-btn">抓取</button>
+      <div id="scrape-result"></div>
+      <p>API 基址：<code id="api-base-text"></code></p>
     </div>
 
-    <!-- 关键点：用内联 module 脚本读取 Vite 环境变量，并发起抓取 -->
-    <script type="module">
-      // 读取前端环境变量（请在 frontend/.env 设置 VITE_API_BASE=https://yunivera-mvp2.onrender.com/v1/api）
-      const ENV_API = (import.meta.env && import.meta.env.VITE_API_BASE) || '';
-      // 兜底（避免忘记配置 .env 时仍可使用）
-      const FALLBACK = 'https://yunivera-mvp2.onrender.com/v1/api';
-      const API_BASE = (ENV_API || FALLBACK).replace(/\/+$/, ''); // 去掉末尾斜杠
+    <script>
+      // 固定后端 API 基址（不再依赖 import.meta.env）
+      const API_BASE = "https://yunivera-mvp2.onrender.com/v1/api";
+      document.getElementById("api-base-text").textContent = API_BASE;
 
-      const $ = (sel) => document.querySelector(sel);
-      const urlInput = $('#scrape-url');
-      const btn = $('#scrape-btn');
-      const out = $('#scrape-result');
+      const btn = document.getElementById("scrape-btn");
+      const input = document.getElementById("scrape-url");
+      const out = document.getElementById("scrape-result");
 
-      btn.addEventListener('click', async () => {
-        const rawUrl = urlInput.value.trim();
+      btn.addEventListener("click", async () => {
+        const rawUrl = input.value.trim();
         if (!rawUrl) {
-          out.textContent = '请先输入要抓取的 URL';
+          out.textContent = "❌ 请输入网址";
           return;
         }
-        out.textContent = '⏳ 抓取中……';
+        out.textContent = "⏳ 抓取中...";
 
         try {
-          const res = await fetch(`${API_BASE}/scrape?url=${encodeURIComponent(rawUrl)}`, { method: 'GET' });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const res = await fetch(`${API_BASE}/scrape?url=${encodeURIComponent(rawUrl)}`);
+          if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
-
-          const pretty =
-            `Title： ${data.title}\n` +
-            `描述： ${data.description || '(无)'}\n` +
-            `H1：   ${(Array.isArray(data.h1) && data.h1.join(' | ')) || '(无)'}\n` +
-            `\n完整数据：\n${JSON.stringify(data, null, 2)}`;
-
-          out.textContent = pretty;
-        } catch (err) {
-          out.textContent = '❌ 抓取失败：' + (err?.message || String(err));
+          out.textContent =
+            `Title: ${data.title}\n描述: ${data.description || "(无)"}\nH1: ${data.h1?.join(" | ") || "(无)"}\n` +
+            `SKU: ${data.sku || "(无)"} | 价格: ${data.price || "(无)"} ${data.currency || ""} | MOQ: ${
+              data.moq || "(无)"
+            }\n\n完整数据:\n` +
+            JSON.stringify(data, null, 2);
+        } catch (e) {
+          out.textContent = "❌ 抓取失败: " + e.message;
         }
       });
     </script>
